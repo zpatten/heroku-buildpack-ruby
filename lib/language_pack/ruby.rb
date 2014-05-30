@@ -702,7 +702,7 @@ params = CGI.parse(uri.query || "")
   def run_db_migrate_rake_task
     instrument 'ruby.run_db_migrate_rake_task' do
 
-      if ENV['DATABASE_URL'].nil?
+      if env("DATABASE_URL").nil?
         puts "Skipping database migration since DATABASE_URL is not defined."
         return true
       end
