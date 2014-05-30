@@ -713,7 +713,7 @@ params = CGI.parse(uri.query || "")
       topic "Running database migrations"
       dbmigrate.invoke(env: rake_env)
       if dbmigrate.success?
-        puts "Database migrations completed (#{"%.2f" % precompile.time}s)"
+        puts "Database migrations completed (#{"%.2f" % dbmigrate.time}s)"
       else
         error "Database migrations failed."
       end
