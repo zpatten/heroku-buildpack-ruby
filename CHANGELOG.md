@@ -1,5 +1,22 @@
 ## Master
 
+## v123 (7/25/2014)
+
+* fix permission denied edge cases when copying the bundler cache with minitest
+
+## v122 (7/25/2014)
+
+* handle bundler cache for stack changes on existing apps
+
+## v121 (6/30/2014)
+
+* on new apps, source default envs instead of replacing them
+* support different stacks for new apps
+
+## v120 (6/16/2014)
+
+* Bump bundler to 1.6.3 which includes improved dependency resolver
+
 ## v119 (5/9/2014)
 
 * Temporarily disable default ruby cache
