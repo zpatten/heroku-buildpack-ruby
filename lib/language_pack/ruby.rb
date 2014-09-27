@@ -5,6 +5,7 @@ require "rubygems"
 require "language_pack"
 require "language_pack/base"
 require "language_pack/ruby_version"
+require "language_pack/helpers/node_installer"
 require "language_pack/version"
 
 # base Ruby Language Pack. This is for any base ruby app.
@@ -14,8 +15,6 @@ class LanguagePack::Ruby < LanguagePack::Base
   LIBYAML_PATH         = "libyaml-#{LIBYAML_VERSION}"
   BUNDLER_VERSION      = "1.6.3"
   BUNDLER_GEM_PATH     = "bundler-#{BUNDLER_VERSION}"
-  NODE_VERSION         = "0.4.7"
-  NODE_JS_BINARY_PATH  = "node-#{NODE_VERSION}"
   JVM_BASE_URL         = "http://heroku-jdk.s3.amazonaws.com"
   LATEST_JVM_VERSION   = "openjdk7-latest"
   LEGACY_JVM_VERSION   = "openjdk1.7.0_25"
@@ -41,9 +40,10 @@ class LanguagePack::Ruby < LanguagePack::Base
 
   def initialize(build_path, cache_path=nil)
     super(build_path, cache_path)
-    @fetchers[:mri] = LanguagePack::Fetcher.new(VENDOR_URL, @stack)
-    @fetchers[:jvm] = LanguagePack::Fetcher.new(JVM_BASE_URL)
-    @fetchers[:rbx] = LanguagePack::Fetcher.new(RBX_BASE_URL)
+    @fetchers[:mri]    = LanguagePack::Fetcher.new(VENDOR_URL, @stack)
+    @fetchers[:jvm]    = LanguagePack::Fetcher.new(JVM_BASE_URL)
+    @fetchers[:rbx]    = LanguagePack::Fetcher.new(RBX_BASE_URL, @stack)
+    @node_installer    = LanguagePack::NodeInstaller.new(@stack)
   end
 
   def name
@@ -92,6 +92,7 @@ class LanguagePack::Ruby < LanguagePack::Base
       allow_git do
         install_bundler_in_app
         build_bundler
+        post_bundler
         create_database_yml
         install_binaries
         run_assets_precompile_rake_task
@@ -334,11 +335,11 @@ WARNING
   end
 
   # vendors JVM into the slug for JRuby
-  def install_jvm
+  def install_jvm(forced = false)
     instrument 'ruby.install_jvm' do
-      if ruby_version.jruby?
+      if ruby_version.jruby? || forced
         jvm_version =
-          if Gem::Version.new(ruby_version.engine_version) >= Gem::Version.new("1.7.4")
+          if forced || Gem::Version.new(ruby_version.engine_version) >= Gem::Version.new("1.7.4")
             LATEST_JVM_VERSION
           else
             LEGACY_JVM_VERSION
@@ -415,7 +416,11 @@ WARNING
     bin_dir = "bin"
     FileUtils.mkdir_p bin_dir
     Dir.chdir(bin_dir) do |dir|
-      @fetchers[:buildpack].fetch_untar("#{name}.tgz")
+      if name.match(/^node\-/)
+        @node_installer.install
+      else
+        @fetchers[:buildpack].fetch_untar("#{name}.tgz")
+      end
     end
   end
 
@@ -568,6 +573,13 @@ ERROR
     end
   end
 
+  def post_bundler
+    if bundler.has_gem?('yui-compressor') && !ruby_version.jruby?
+      install_jvm(true)
+      ENV["PATH"] += ":bin"
+    end
+  end
+
   # RUBYOPT line that requires syck_hack file
   # @return [String] require string if needed or else an empty string
   def syck_hack
@@ -688,7 +700,7 @@ params = CGI.parse(uri.query || "")
   # @note execjs will blow up if no JS RUNTIME is detected and is loaded.
   # @return [Array] the node.js binary path if we need it or an empty Array
   def add_node_js_binary
-    bundler.has_gem?('execjs') && !node_js_installed? ? [NODE_JS_BINARY_PATH] : []
+    bundler.has_gem?('execjs') && !node_js_installed? ? [@node_installer.binary_path] : []
   end
 
   def node_bp_bin_path
@@ -790,7 +802,7 @@ params = CGI.parse(uri.query || "")
       elsif !@metadata.exists?(buildpack_version_cache) && @metadata.exists?(ruby_version_cache)
         puts "Broken cache detected. Purging build cache."
         purge_bundler_cache
-      elsif cache.exists?(bundler_cache) && @metadata.exists?(ruby_version_cache) && full_ruby_version != @metadata.read(ruby_version_cache).chomp
+      elsif (@bundler_cache.exists? || @bundler_cache.old?) && @metadata.exists?(ruby_version_cache) && full_ruby_version != @metadata.read(ruby_version_cache).chomp
         puts "Ruby version change detected. Clearing bundler cache."
         puts "Old: #{@metadata.read(ruby_version_cache).chomp}"
         puts "New: #{full_ruby_version}"
